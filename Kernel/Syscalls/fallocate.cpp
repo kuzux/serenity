@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include "Kernel/API/POSIX/errno.h"
+#include "errno_codes.h"
 #include <AK/Checked.h>
 #include <Kernel/FileSystem/Inode.h>
 #include <Kernel/FileSystem/InodeFile.h>
@@ -49,10 +51,15 @@ ErrorOr<FlatPtr> Process::sys$posix_fallocate(int fd, Userspace<off_t const*> us
     // Note: truncate essentially calls resize in the inodes implementation
     //       while resize is not a standard member of an inode, so we just call
     //       truncate instead
-    TRY(file.inode().truncate(checked_size.value()));
+    auto result = file.inode().truncate(checked_size.value());
 
-    // FIXME: ENOSPC: There is not enough space left on the device containing the file referred to by fd.
-    // FIXME: EINTR: A signal was caught during execution.
+    if (result.is_error()) {
+        auto err = result.release_error();
+        if (err.is_errno() && err.code() == ENOSPC)
+            return ENOSPC;
+        // FIXME: EINTR: A signal was caught during execution.
+    }
+
     return 0;
 }
 
