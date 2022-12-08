@@ -6,6 +6,8 @@
  */
 
 #include "Field.h"
+#include "AK/Assertions.h"
+#include "AK/Time.h"
 #include <AK/HashTable.h>
 #include <AK/NumberFormat.h>
 #include <AK/Queue.h>
@@ -215,13 +217,6 @@ void Field::reset()
         square->label->set_visible(false);
     }
 
-    HashTable<int> mines;
-    while (mines.size() != m_mine_count) {
-        int location = get_random_uniform(rows() * columns());
-        if (!mines.contains(location))
-            mines.set(location);
-    }
-
     size_t i = 0;
     for (size_t r = 0; r < rows(); ++r) {
         for (size_t c = 0; c < columns(); ++c) {
@@ -232,7 +227,7 @@ void Field::reset()
             square.field = this;
             square.row = r;
             square.column = c;
-            square.has_mine = mines.contains(i);
+            square.has_mine = false;
             square.has_flag = false;
             square.is_considering = false;
             square.is_swept = false;
@@ -268,6 +263,23 @@ void Field::reset()
             ++i;
         }
     }
+    
+    set_updates_enabled(true);
+}
+
+void Field::generate_field() {
+    VERIFY(m_squares.size() == rows()*columns());
+    VERIFY(m_mine_count <= m_squares.size() - 1);
+
+    HashTable<int> mines;
+    while (mines.size() != m_mine_count) {
+        int location = get_random_uniform(rows() * columns());
+        if (!mines.contains(location))
+            mines.set(location);
+    }
+
+    for (size_t i = 0; i < rows()*columns(); ++i)
+        m_squares[i]->has_mine = mines.contains(i);
 
     for (size_t r = 0; r < rows(); ++r) {
         for (size_t c = 0; c < columns(); ++c) {
@@ -285,7 +297,6 @@ void Field::reset()
     }
 
     m_unswept_empties = rows() * columns() - m_mine_count;
-    set_updates_enabled(true);
 }
 
 void Field::flood_fill(Square& square)
@@ -330,9 +341,14 @@ void Field::paint_event(GUI::PaintEvent& event)
 void Field::on_square_clicked_impl(Square& square, bool should_flood_fill)
 {
     if (m_first_click) {
-        while (square.has_mine || square.number != 0) {
-            reset();
-        }
+        reset();
+        auto before = AK::Time::now_realtime();
+        do {
+            generate_field();
+        } while (square.has_mine || square.number != 0);
+        auto after = AK::Time::now_realtime();
+        auto ms = (after - before).to_milliseconds();
+        dbgln("Field generation took {} ms", ms);
     }
     m_first_click = false;
 

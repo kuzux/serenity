@@ -36,7 +36,7 @@ void CustomGameDialog::set_max_mines()
 {
     // Generating a field with > 50% mines takes too long.
     // FIXME: Allow higher amount of mines to be placed.
-    m_mines_spinbox->set_max((m_rows_spinbox->value() * m_columns_spinbox->value()) / 2);
+    // m_mines_spinbox->set_max((m_rows_spinbox->value() * m_columns_spinbox->value()) / 2);
 }
 
 CustomGameDialog::CustomGameDialog(Window* parent_window)
