@@ -8,6 +8,7 @@
 #include "Field.h"
 #include "AK/Assertions.h"
 #include "AK/Time.h"
+#include "AK/Types.h"
 #include <AK/HashTable.h>
 #include <AK/NumberFormat.h>
 #include <AK/Queue.h>
@@ -199,6 +200,7 @@ void Square::for_each_neighbor(Callback callback)
 
 void Field::reset()
 {
+    dbgln("calling reset");
     m_first_click = true;
     set_updates_enabled(false);
     m_time_elapsed = 0;
@@ -267,19 +269,60 @@ void Field::reset()
     set_updates_enabled(true);
 }
 
-void Field::generate_field() {
-    VERIFY(m_squares.size() == rows()*columns());
-    VERIFY(m_mine_count <= m_squares.size() - 1);
+void Field::generate_field(size_t start_row, size_t start_column) {
+    dbgln("in generate field");
 
-    HashTable<int> mines;
-    while (mines.size() != m_mine_count) {
-        int location = get_random_uniform(rows() * columns());
-        if (!mines.contains(location))
-            mines.set(location);
+    // FIXME: We get a crash after resizing the game area
+    VERIFY(m_squares.size() == rows()*columns());
+
+    // FIXME: Handle possible errors
+    HashTable<size_t> free_squares;
+
+    size_t start_index = start_row * columns() + start_column;
+    free_squares.set(start_index);
+
+    square(start_row, start_column).for_each_neighbor([&](const auto& neighbor) {
+        size_t neighbor_index = neighbor.row * columns() + neighbor.column;
+        free_squares.set(neighbor_index);
+    });
+
+    VERIFY(m_mine_count <= m_squares.size() - free_squares.size());
+
+    Vector<size_t> possible_mine_positions;
+    possible_mine_positions.ensure_capacity(m_squares.size() - free_squares.size());
+
+    for(size_t i=0; i < m_squares.size(); ++i) {
+        m_squares[i]->has_mine = false;
+        m_squares[i]->has_flag = false;
+        m_squares[i]->is_considering = false;
+        m_squares[i]->is_swept = false;
+        m_squares[i]->number = 0;
+        if(!free_squares.contains(i)) possible_mine_positions.unchecked_append(i);
     }
 
-    for (size_t i = 0; i < rows()*columns(); ++i)
-        m_squares[i]->has_mine = mines.contains(i);
+    dbgln("possible_mine_positions.size(): {}, free_squares.size(): {}, board size: {}", 
+        possible_mine_positions.size(), free_squares.size(), rows()*columns());
+
+    // Fisher-Yates shuffle
+    size_t tmp;
+    for (size_t i = possible_mine_positions.size() - 1; i >= 1; --i) {
+        size_t j = get_random_uniform(i + 1);
+        // Swap i and j
+        if (i == j)
+            continue;
+        tmp = possible_mine_positions[j];
+        possible_mine_positions[j] = possible_mine_positions[i];
+        possible_mine_positions[i] = tmp;
+    }
+
+    for(size_t i = 0; i < m_mine_count; i++) {
+        size_t mine_location = possible_mine_positions[i];
+        m_squares[mine_location]->has_mine = true;
+    }
+
+    /*for(size_t i=0; i<8; i++) {
+        dbgln("label icon {}: {:x}", i, m_number_bitmap[i]);
+    }*/
 
     for (size_t r = 0; r < rows(); ++r) {
         for (size_t c = 0; c < columns(); ++c) {
@@ -290,9 +333,11 @@ void Field::generate_field() {
             });
             square.number = number;
             if (square.has_mine)
-                continue;
-            if (square.number)
+                square.label->set_icon(m_mine_bitmap);
+            else if (square.number) {
+                // dbgln("square ({}, {}) number-1 {}, setting icon to {:x}", square.row, square.column, square.number-1, m_number_bitmap[square.number-1]);
                 square.label->set_icon(m_number_bitmap[square.number - 1]);
+            }
         }
     }
 
@@ -343,11 +388,10 @@ void Field::on_square_clicked_impl(Square& square, bool should_flood_fill)
     if (m_first_click) {
         reset();
         auto before = AK::Time::now_realtime();
-        do {
-            generate_field();
-        } while (square.has_mine || square.number != 0);
+        generate_field(square.row, square.column);
         auto after = AK::Time::now_realtime();
         auto ms = (after - before).to_milliseconds();
+        dbgln("square has mine: {}, number: {}", square.has_mine, square.number);
         dbgln("Field generation took {} ms", ms);
     }
     m_first_click = false;
@@ -478,6 +522,7 @@ void Field::reveal_mines()
             if (square.has_mine && !square.has_flag) {
                 square.button->set_visible(false);
                 square.label->set_visible(true);
+                // dbgln("revealing ({}, {}) label icon {:x}", r, c, square.label->icon());
             }
             if (!square.has_mine && square.has_flag) {
                 square.button->set_icon(*m_badflag_bitmap);
