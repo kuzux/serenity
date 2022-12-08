@@ -6,9 +6,8 @@
  */
 
 #include "Field.h"
-#include "AK/Assertions.h"
-#include "AK/Time.h"
-#include "AK/Types.h"
+#include <AK/Assertions.h>
+#include <AK/Types.h>
 #include <AK/HashTable.h>
 #include <AK/NumberFormat.h>
 #include <AK/Queue.h>
@@ -200,7 +199,6 @@ void Square::for_each_neighbor(Callback callback)
 
 void Field::reset()
 {
-    dbgln("calling reset");
     m_first_click = true;
     set_updates_enabled(false);
     m_time_elapsed = 0;
@@ -270,10 +268,8 @@ void Field::reset()
 }
 
 void Field::generate_field(size_t start_row, size_t start_column) {
-    dbgln("in generate field");
-
-    // FIXME: We get a crash after resizing the game area
-    VERIFY(m_squares.size() == rows()*columns());
+    VERIFY(m_squares.size() >= rows()*columns());
+    size_t board_size = rows()*columns();
 
     // FIXME: Handle possible errors
     HashTable<size_t> free_squares;
@@ -286,12 +282,12 @@ void Field::generate_field(size_t start_row, size_t start_column) {
         free_squares.set(neighbor_index);
     });
 
-    VERIFY(m_mine_count <= m_squares.size() - free_squares.size());
+    VERIFY(m_mine_count <= board_size - free_squares.size());
 
     Vector<size_t> possible_mine_positions;
-    possible_mine_positions.ensure_capacity(m_squares.size() - free_squares.size());
+    possible_mine_positions.ensure_capacity(board_size - free_squares.size());
 
-    for(size_t i=0; i < m_squares.size(); ++i) {
+    for(size_t i=0; i < board_size; ++i) {
         m_squares[i]->has_mine = false;
         m_squares[i]->has_flag = false;
         m_squares[i]->is_considering = false;
@@ -299,9 +295,6 @@ void Field::generate_field(size_t start_row, size_t start_column) {
         m_squares[i]->number = 0;
         if(!free_squares.contains(i)) possible_mine_positions.unchecked_append(i);
     }
-
-    dbgln("possible_mine_positions.size(): {}, free_squares.size(): {}, board size: {}", 
-        possible_mine_positions.size(), free_squares.size(), rows()*columns());
 
     // Fisher-Yates shuffle
     size_t tmp;
@@ -320,10 +313,6 @@ void Field::generate_field(size_t start_row, size_t start_column) {
         m_squares[mine_location]->has_mine = true;
     }
 
-    /*for(size_t i=0; i<8; i++) {
-        dbgln("label icon {}: {:x}", i, m_number_bitmap[i]);
-    }*/
-
     for (size_t r = 0; r < rows(); ++r) {
         for (size_t c = 0; c < columns(); ++c) {
             auto& square = this->square(r, c);
@@ -335,7 +324,6 @@ void Field::generate_field(size_t start_row, size_t start_column) {
             if (square.has_mine)
                 square.label->set_icon(m_mine_bitmap);
             else if (square.number) {
-                // dbgln("square ({}, {}) number-1 {}, setting icon to {:x}", square.row, square.column, square.number-1, m_number_bitmap[square.number-1]);
                 square.label->set_icon(m_number_bitmap[square.number - 1]);
             }
         }
@@ -387,12 +375,7 @@ void Field::on_square_clicked_impl(Square& square, bool should_flood_fill)
 {
     if (m_first_click) {
         reset();
-        auto before = AK::Time::now_realtime();
         generate_field(square.row, square.column);
-        auto after = AK::Time::now_realtime();
-        auto ms = (after - before).to_milliseconds();
-        dbgln("square has mine: {}, number: {}", square.has_mine, square.number);
-        dbgln("Field generation took {} ms", ms);
     }
     m_first_click = false;
 
@@ -522,7 +505,6 @@ void Field::reveal_mines()
             if (square.has_mine && !square.has_flag) {
                 square.button->set_visible(false);
                 square.label->set_visible(true);
-                // dbgln("revealing ({}, {}) label icon {:x}", r, c, square.label->icon());
             }
             if (!square.has_mine && square.has_flag) {
                 square.button->set_icon(*m_badflag_bitmap);
